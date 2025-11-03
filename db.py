@@ -116,3 +116,13 @@ def get_stats_summary():
         'completed_tests': completed_tests,
         'top_users': top
     }
+
+
+def get_all_users():
+    """Barcha foydalanuvchilarni olish (broadcast uchun)"""
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+    cur.execute('SELECT DISTINCT user_id, first_name, username FROM user_activity ORDER BY user_id')
+    users = cur.fetchall()
+    conn.close()
+    return users

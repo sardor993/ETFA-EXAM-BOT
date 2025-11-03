@@ -6,7 +6,7 @@ from datetime import datetime
 from typing import Dict, Any
 import db
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes
+from telegram.ext import Application, CommandHandler, CallbackQueryHandler, MessageHandler, ContextTypes, filters
 from dotenv import load_dotenv
 
 # .env fayldan o'zgaruvchilarni yuklash
@@ -21,6 +21,7 @@ logger = logging.getLogger(__name__)
 
 # Bot token - .env fayldan olish
 BOT_TOKEN = os.getenv("BOT_TOKEN", "YOUR_BOT_TOKEN_HERE")
+ADMIN_USER_ID = int(os.getenv("ADMIN_USER_ID", "0"))
 
 class MultiLanguageQuizBot:
     def __init__(self):
@@ -323,6 +324,10 @@ async def show_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE, use
         [InlineKeyboardButton(quiz_bot.get_text(user_id, 'choose_language'), callback_data="change_language")]
     ]
     
+    # Admin uchun maxsus tugma qo'shish
+    if user_id == ADMIN_USER_ID:
+        keyboard.append([InlineKeyboardButton("🔧 Admin Panel", callback_data="admin_panel")])
+    
     reply_markup = InlineKeyboardMarkup(keyboard)
     
     if update.callback_query:
@@ -509,6 +514,60 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         quiz_bot.start_new_quiz(user_id, subject)
         await show_question(update, context, user_id)
         return
+    
+    # Admin funksiyalari
+    if data == "admin_panel":
+        await show_admin_panel(update, context)
+        return
+    
+    if data == "admin_broadcast":
+        await start_broadcast(update, context)
+        return
+    
+    if data == "admin_statistics":
+        stats = db.get_stats_summary()
+        stats_text = f"""📊 **Bot Statistikasi**
+
+👥 Jami foydalanuvchilar: {stats['unique_users']}
+📝 Boshlangan testlar: {stats['total_tests']}
+✅ Tugallangan testlar: {stats['completed_tests']}
+📈 Tugallash foizi: {(stats['completed_tests']/stats['total_tests']*100) if stats['total_tests'] > 0 else 0:.1f}%
+
+🏆 **Eng faol foydalanuvchilar:**
+"""
+        for i, (uid, first_name, username, tests) in enumerate(stats['top_users'], 1):
+            uname = f"@{username}" if username else "Noma'lum"
+            stats_text += f"{i}. {first_name} ({uname}) - {tests} ta test\n"
+        
+        keyboard = [
+            [InlineKeyboardButton("🔧 Admin Panel", callback_data="admin_panel")],
+            [InlineKeyboardButton("🏠 Asosiy Menyu", callback_data="back_to_menu")]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        await update.callback_query.edit_message_text(stats_text, reply_markup=reply_markup, parse_mode='Markdown')
+        return
+    
+    if data == "admin_users":
+        users = db.get_all_users()
+        users_text = f"👥 **Barcha Foydalanuvchilar** ({len(users)} ta)\n\n"
+        for i, (uid, first_name, username) in enumerate(users[:20], 1):  # Faqat birinchi 20 ta
+            uname = f"@{username}" if username else "Noma'lum"
+            users_text += f"{i}. {first_name} ({uname}) - ID: {uid}\n"
+        
+        if len(users) > 20:
+            users_text += f"\n... va yana {len(users)-20} ta foydalanuvchi"
+        
+        keyboard = [
+            [InlineKeyboardButton("🔧 Admin Panel", callback_data="admin_panel")],
+            [InlineKeyboardButton("🏠 Asosiy Menyu", callback_data="back_to_menu")]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        await update.callback_query.edit_message_text(users_text, reply_markup=reply_markup, parse_mode='Markdown')
+        return
+    
+    if data == "back_to_menu":
+        await show_main_menu(update, context, user_id)
+        return
 
 async def show_first_question(query, context, user_id):
     """Birinchi savolni ko'rsatish"""
@@ -628,6 +687,109 @@ async def admin_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await update.message.reply_text(stats_text)
 
+async def show_admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Admin panelini ko'rsatish"""
+    user_id = update.effective_user.id
+    
+    if user_id != ADMIN_USER_ID:
+        await update.callback_query.answer("❌ Sizda admin huquqi yo'q!")
+        return
+    
+    keyboard = [
+        [InlineKeyboardButton("📢 Broadcast Xabar", callback_data="admin_broadcast")],
+        [InlineKeyboardButton("📊 Statistika", callback_data="admin_statistics")],
+        [InlineKeyboardButton("👥 Barcha Foydalanuvchilar", callback_data="admin_users")],
+        [InlineKeyboardButton("🏠 Asosiy Menyu", callback_data="back_to_menu")]
+    ]
+    
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    admin_text = "🔧 **Admin Panel**\n\nQaysi amalni bajarmoqchisiz?"
+    
+    await update.callback_query.edit_message_text(admin_text, reply_markup=reply_markup, parse_mode='Markdown')
+
+async def start_broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Broadcast rejimini boshlash"""
+    user_id = update.effective_user.id
+    
+    if user_id != ADMIN_USER_ID:
+        await update.callback_query.answer("❌ Sizda admin huquqi yo'q!")
+        return
+    
+    # Broadcast rejimini belgilash
+    if user_id not in quiz_bot.user_sessions:
+        quiz_bot.user_sessions[user_id] = {}
+    quiz_bot.user_sessions[user_id]['state'] = 'waiting_broadcast'
+    
+    keyboard = [
+        [InlineKeyboardButton("❌ Bekor qilish", callback_data="admin_panel")]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    broadcast_text = """📢 **Broadcast Xabar**
+
+Barcha foydalanuvchilarga yubormoqchi bo'lgan xabaringizni yozing.
+
+⚠️ **Diqqat:** Xabar barcha botdan foydalangan foydalanuvchilarga yuboriladi!
+
+Xabaringizni kiriting:"""
+    
+    await update.callback_query.edit_message_text(broadcast_text, reply_markup=reply_markup, parse_mode='Markdown')
+
+async def handle_broadcast_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Broadcast xabarini yuborish"""
+    user_id = update.effective_user.id
+    
+    if user_id != ADMIN_USER_ID:
+        return
+    
+    session = quiz_bot.user_sessions.get(user_id, {})
+    if session.get('state') != 'waiting_broadcast':
+        return
+    
+    broadcast_text = update.message.text
+    
+    # Barcha foydalanuvchilarni olish
+    all_users = db.get_all_users()
+    
+    sent_count = 0
+    failed_count = 0
+    
+    progress_message = await update.message.reply_text("📤 Xabar yuborilmoqda...")
+    
+    for user_data in all_users:
+        target_user_id = user_data[0]  # user_id
+        try:
+            await context.bot.send_message(
+                chat_id=target_user_id,
+                text=f"📢 **Admin xabari:**\n\n{broadcast_text}",
+                parse_mode='Markdown'
+            )
+            sent_count += 1
+        except Exception as e:
+            failed_count += 1
+            logger.warning(f"Failed to send broadcast to {target_user_id}: {e}")
+    
+    # Natijani ko'rsatish
+    result_text = f"""✅ **Broadcast yakunlandi!**
+
+📤 Yuborildi: {sent_count} ta foydalanuvchi
+❌ Xato: {failed_count} ta foydalanuvchi
+📊 Jami: {len(all_users)} ta foydalanuvchi"""
+    
+    await progress_message.edit_text(result_text, parse_mode='Markdown')
+    
+    # Broadcast rejimini tugatish
+    quiz_bot.user_sessions[user_id]['state'] = 'menu'
+    
+    # Admin panelga qaytish tugmasi
+    keyboard = [
+        [InlineKeyboardButton("🔧 Admin Panel", callback_data="admin_panel")],
+        [InlineKeyboardButton("🏠 Asosiy Menyu", callback_data="back_to_menu")]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    await update.message.reply_text("Qaysi bo'limga qaytasiz?", reply_markup=reply_markup)
+
 def main():
     """Botni ishga tushirish"""
     # Application yaratish
@@ -638,6 +800,7 @@ def main():
     application.add_handler(CommandHandler("myid", get_my_id))  # User ID olish
     application.add_handler(CommandHandler("stats", admin_stats))  # Admin statistika
     application.add_handler(CallbackQueryHandler(button_handler))
+    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_broadcast_message))
     
     # Health check uchun web server (agar kerak bo'lsa)
     port = int(os.getenv("PORT", 8080))
