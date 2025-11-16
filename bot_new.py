@@ -124,7 +124,8 @@ class MultiLanguageQuizBot:
                 ('aviation_general', 'questions_aviation_general.json'),
                 ('meteorology', 'questions_meteorology.json'),
                 ('navigation', 'questions_navigation.json'),
-                ('cessna172', 'questions_cessna172.json')
+                ('cessna172', 'questions_cessna172.json'),
+                ('operations', 'questions_operations.json')
             ]
             for subj, path in subjects:
                 try:
@@ -323,6 +324,7 @@ async def show_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE, use
         [InlineKeyboardButton(quiz_bot.get_text(user_id, 'meteorology'), callback_data="subject_meteorology")],
         [InlineKeyboardButton(quiz_bot.get_text(user_id, 'navigation'), callback_data="subject_navigation")],
         [InlineKeyboardButton(quiz_bot.get_text(user_id, 'cessna172'), callback_data="subject_cessna172")],
+        [InlineKeyboardButton(quiz_bot.get_text(user_id, 'operational_rules'), callback_data="subject_operational_rules")],
         [InlineKeyboardButton(quiz_bot.get_text(user_id, 'choose_language'), callback_data="change_language")]
     ]
     
@@ -434,7 +436,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Fan tanlash
     if data.startswith("subject_"):
         subject = data.split("_", 1)[1]  # "_"dan keyin barcha qismni olish
-        if subject == "aviation" or subject == "aviation_general" or subject == "meteorology" or subject == "navigation" or subject == "cessna172":
+        if subject == "aviation" or subject == "aviation_general" or subject == "meteorology" or subject == "navigation" or subject == "cessna172" or subject == "operational_rules":
             if quiz_bot.start_new_quiz(user_id, subject):
                 # Test boshlanganligi haqida loglash (DB)
                 user = query.from_user
@@ -467,8 +469,9 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         is_correct = quiz_bot.answer_question(user_id, selected_index)
 
+        # Javobni ko'rsatish
         if is_correct:
-            await query.edit_message_text(quiz_bot.get_text(user_id, 'correct_answer'))
+            result_text = f"✅ {quiz_bot.get_text(user_id, 'correct_answer')}"
         else:
             q = quiz_bot.get_current_question(user_id)
             # Correct answer indeksini topish
@@ -485,12 +488,25 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             
             correct_text = q['options'][correct_idx] if 0 <= correct_idx < len(q['options']) else str(correct_idx)
             wrong_text = quiz_bot.get_text(user_id, 'wrong_answer')
-            await query.edit_message_text(f"{wrong_text} {correct_text}")
+            result_text = f"❌ {wrong_text}\n\n✅ To'g'ri javob: {correct_text}"
         
-        # 2 soniya kutish va keyingi savolga o'tish
+        # Javobni ko'rsatish va kutish
+        try:
+            await query.edit_message_text(result_text)
+        except Exception as e:
+            logger.error(f"Javob ko'rsatishda xatolik: {e}")
+        
+        # 2.5 soniya kutish va keyingi savolga o'tish
         import asyncio
-        await asyncio.sleep(2)
-        await show_next_question(query, context, user_id)
+        await asyncio.sleep(2.5)
+        
+        # Keyingi savolga o'tish
+        try:
+            await show_next_question(query, context, user_id)
+        except Exception as e:
+            logger.error(f"Keyingi savolga o'tishda xatolik: {e}")
+            # Agar xatolik bo'lsa, savolni qayta ko'rsatish
+            await show_question(update, context, user_id)
         return
     
     # Navigation tugmalari
