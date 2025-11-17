@@ -89,7 +89,7 @@ class MultiLanguageQuizBot:
             if log['activity'] == 'test_started':
                 user_activity[user_id]['tests'] += 1
         
-        top_users = sorted(user_activity.items(), key=lambda x: x[1]['tests'], reverse=True)[:5]
+        top_users = sorted(user_activity.items(), key=lambda x: x[1]['tests'], reverse=True)[:20]
         
         stats_text = f"""📊 Bot Statistikasi
 
