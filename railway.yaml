@@ -1,0 +1,10 @@
+build:
+  builder: dockerfile
+  buildCommand: pip install -r requirements.txt
+  dockerfile: ./Dockerfile
+
+deploy:
+  startCommand: python bot_new.py
+  restartPolicyType: ON_FAILURE
+  restartPolicyMaxRetries: 5
+  numReplicas: 1
