@@ -1,5 +1,5 @@
 services:
-  - type: web
+  - type: background
     name: telegram-quiz-bot
     env: python
     plan: free
