@@ -150,28 +150,40 @@ class MultiLanguageQuizBot:
         language = session.get('language', 'uz')
         return self.translations.get(language, {}).get(key, key)
     
-    def start_new_quiz(self, user_id: int, subject: str):
-        """Yangi quiz boshlash"""
-        # Use DB to fetch random questions
+    def start_new_quiz(self, user_id: int, subject: str, test_mode: str = 'random'):
+        """Yangi quiz boshlash
+        test_mode: 'random' = 30 tasodifiy savol, 'sequential' = barcha savollar ketmaket
+        """
+        # Use DB to fetch questions
         try:
             available = db.count_questions(subject)
         except Exception:
             available = 0
+        
         if available < 30:
             logger.warning(f"{subject} uchun kamida 30 ta savol kerak!")
             return False
 
-        selected_questions = db.get_random_questions(subject, 30)
+        # Test mode bo'yicha savollarni tanlash
+        if test_mode == 'sequential':
+            # Barcha savollarni ketmaket
+            selected_questions = db.get_all_questions(subject)
+            total_questions = len(selected_questions)
+        else:
+            # Random - 30 ta
+            selected_questions = db.get_random_questions(subject, 30)
+            total_questions = 30
         
         if user_id not in self.user_sessions:
             self.user_sessions[user_id] = {}
             
         self.user_sessions[user_id].update({
             'subject': subject,
+            'test_mode': test_mode,
             'questions': selected_questions,
             'current_question': 0,
             'correct_answers': 0,
-            'answers': [None] * 30,
+            'answers': [None] * total_questions,
             'state': 'quiz'
         })
         return True
@@ -437,11 +449,48 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await show_main_menu(update, context, user_id)
         return
     
-    # Fan tanlash
+    # Fan tanlash - Test mode tanlash tugmalarini ko'rsatish
     if data.startswith("subject_"):
         subject = data.split("_", 1)[1]  # "_"dan keyin barcha qismni olish
-        if subject == "airlaw" or subject == "aviation" or subject == "aviation_general" or subject == "meteorology" or subject == "navigation" or subject == "cessna172" or subject == "operations" or subject == "radiotelephony":
-            if quiz_bot.start_new_quiz(user_id, subject):
+        valid_subjects = ["airlaw", "aviation", "aviation_general", "meteorology", "navigation", "cessna172", "operations", "radiotelephony"]
+        
+        if subject in valid_subjects:
+            # Test mode tanlash tugmalarini ko'rsatish
+            keyboard = [
+                [
+                    InlineKeyboardButton(
+                        quiz_bot.get_text(user_id, 'random_test'),
+                        callback_data=f"testmode_random_{subject}"
+                    )
+                ],
+                [
+                    InlineKeyboardButton(
+                        quiz_bot.get_text(user_id, 'sequential_test'),
+                        callback_data=f"testmode_sequential_{subject}"
+                    )
+                ],
+                [
+                    InlineKeyboardButton(
+                        quiz_bot.get_text(user_id, 'back_to_menu'),
+                        callback_data="main_menu"
+                    )
+                ]
+            ]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            mode_text = quiz_bot.get_text(user_id, 'choose_test_mode')
+            await query.edit_message_text(mode_text, reply_markup=reply_markup)
+        return
+    
+    # Test mode tanlash (random yoki sequential)
+    if data.startswith("testmode_"):
+        parts = data.split("_")
+        test_mode = parts[1]  # 'random' yoki 'sequential'
+        subject = "_".join(parts[2:])  # Subject (multiple parts bo'lsa)
+        
+        valid_subjects = ["airlaw", "aviation", "aviation_general", "meteorology", "navigation", "cessna172", "operations", "radiotelephony"]
+        
+        if subject in valid_subjects and test_mode in ['random', 'sequential']:
+            if quiz_bot.start_new_quiz(user_id, subject, test_mode):
                 # Test boshlanganligi haqida loglash (DB)
                 user = query.from_user
                 db.log_activity(

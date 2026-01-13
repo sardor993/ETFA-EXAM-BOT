@@ -80,6 +80,26 @@ def get_random_questions(subject: str, n: int) -> List[Dict[str, Any]]:
     return result
 
 
+def get_all_questions(subject: str) -> List[Dict[str, Any]]:
+    """Mavzuning barcha savollarini ketmaket tartibi bilan olish"""
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+    cur.execute('SELECT qid, question, options, correct_answer FROM questions WHERE subject = ? ORDER BY qid', (subject,))
+    rows = cur.fetchall()
+    result = []
+    for r in rows:
+        qid, question, options_json, correct = r
+        options = json.loads(options_json)
+        result.append({
+            'id': qid,
+            'question': question,
+            'options': options,
+            'correct_answer': correct
+        })
+    conn.close()
+    return result
+
+
 def count_questions(subject: str) -> int:
     conn = sqlite3.connect(DB_PATH)
     cur = conn.cursor()
